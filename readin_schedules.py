@@ -29,7 +29,7 @@ print(f"Output directory: {output_dir}")
 # %%
 # 2. READ IN THE DATA
 # Define filename based on the 'FSJtemp' prefix
-filestring = 'FSJtemp'
+filestring = 'FSJtemp_readin'
 file_path = data_dir / f"{filestring}.xlsx"
 
 # Using ExcelFile can be more efficient for large workbooks
@@ -50,11 +50,14 @@ df = pd.read_excel(
     },
     keep_default_na=False
 )
-
+print(f"Total rows in df: {len(df)}")
 # %%
 # 3. VERIFY DATA LOAD
 print("\n--- Data Head ---")
 print(df.head())
+
+print("\n--- Data Tail ---")
+print(df.tail(7))
 
 print("\n--- Data Info ---")
 print(df.info())
@@ -131,6 +134,9 @@ df2.head()
 #%%
 df.head()
 
+#%%
+df.tail(7)
+
 # %% 
 # 1. UPDATED MAPPING LOGIC
 # We use rsplit('_', 1) to split only at the LAST underscore.
@@ -139,7 +145,7 @@ class_to_col_map = { c.rsplit('_', 1)[0]: c for c in target_classes }
 
 # Verify the map (it should now correctly contain 'BUS_AD_1500')
 print("Class Mapping Sample:")
-for key in list(class_to_col_map.items())[:5]:
+for key in list(class_to_col_map.items())[:15]:
     print(f"  {key[0]} -> {key[1]}")
 
 # %%
@@ -149,9 +155,26 @@ print("\nPopulating course status columns...")
 # Sort by EMPLID and STRM to process history in chronological order
 df_sorted = df.sort_values(by=['EMPLID', 'STRM'], ascending=[True, True])
 
+print(f"Total rows in df: {len(df)}")
+print(f"Total rows in df_sorted: {len(df_sorted)}")
+
+
 for index, row in df_sorted.iterrows():
     eid = row['EMPLID']
     current_class = row['CLASS']
+
+# -- test start
+    if eid not in df2['EMPLID'].values:
+        # Unprinted because student isn't in df2
+        continue
+    if current_class not in class_to_col_map:
+        # Unprinted because the class isn't in your mapping
+        continue
+
+    # Only rows that make it here get printed
+    print(f"ID: {eid} | Class: {current_class} ...")
+# -- test end
+
     
     # Only process students present in our df2 (last_term cohort)
     if eid in df2['EMPLID'].values:
@@ -163,6 +186,9 @@ for index, row in df_sorted.iterrows():
             # Ensure Grade Points is treated as a float for comparison
             try:
                 grade_pts = float(row['GRD_PTS_PER_UNIT'])
+                
+                print(f"ID: {eid} | Term: {row['STRM']} | Class: {current_class} | Target: {target_col} | GP: {grade_pts}")
+
             except (ValueError, TypeError):
                 continue
             
@@ -188,15 +214,173 @@ if 'BUS_AD_1500_28' in df2.columns:
 # 4. VERIFY TRANSFORMATION
 print("\n--- df2 Transformation Verification ---")
 # Check a few students who are known to have taken target courses
-print(df2[['EMPLID', 'ECONOM_1014_28', 'BUS_AD_1500_28', 'ACCTCY_2036_40', 'ACCTCY_2037_50']].head(10))
+print(df2[['EMPLID', 'ECONOM_1014_28', 'BUS_AD_1500_28', 'ACCTCY_2036_40', 'ACCTCY_2037_50', 'MRKTING_3000_60']].head(10))
 
 # Summary of statuses
 print("\nStatus counts for ECONOM_1014_28:")
 print(df2['ECONOM_1014_28'].value_counts())
 
 #%%
+#%%
+# -- updated Logic example below
+import pandas as pd
+import numpy as np
+import re
+
+# Load the new prerequisite table to drive the class list
+df_preq_v5 = pd.read_excel(data_dir / 'preq_table_counter_v5.xlsx')
+
+# %%
+# 3. POPULATE df2 ELIGIBILITY COUNTERS
+print("Processing eligibility counters with explicit class-by-class checks...")
+
+# Helper function to check if a specific class exists in history with Grade Points >= 0
+def check_pass(hist, strm_limit, target_class):
+    return not hist[(hist['STRM'] <= strm_limit) & 
+                    (hist['CLASS'] == target_class) & 
+                    (hist['GRADE_POINTS'] >= 0)].empty
+
+# Iterating through each student in the cohort (df2)
+for idx, row_df2 in df2.iterrows():
+    eid = row_df2['EMPLID']
+    # Get all historical records for this student sorted by term
+    student_history = df[df['EMPLID'] == eid]
+    student_strms = sorted(student_history['STRM'].unique())
+    
+    # Check each target class (e.g., ECONOM_1014_28)
+    for target_col in target_classes:
+        base_class = target_col.rsplit('_', 1)[0]
+        eli_col = f"{target_col}_SEM_ELI"
+        meeting_term_idx = -1
+        
+        # --- ELIGIBILITY CHECKING (Identify the Meeting Term) ---
+        for i, strm in enumerate(student_strms):
+            is_eligible = False
+            
+            # Context for the current term (Credits and Level)
+            term_data = student_history[student_history['STRM'] == strm]
+            max_cum = term_data['TOT_CUMULATIVE'].max()
+            current_levels = term_data['UM_CLEVEL_DESCR'].unique()
+            
+            # --- START CLASS-SPECIFIC IF-THEN CONDITIONS ---
+            
+            # ECONOM_1014, BUS_AD_1500, ENGLISH_1000, ECONOM_1015, BUS_AD_2500, 
+            # STAT_2500, ECONOM_3229, ECONOM_3251: No Prerequisites
+            if base_class in ['ECONOM_1014', 'BUS_AD_1500', 'ENGLISH_1000', 'ECONOM_1015', 
+                            'BUS_AD_2500', 'STAT_2500', 'ECONOM_3229', 'ECONOM_3251']:
+                is_eligible = True
+                
+            # ACCTCY_2036: Requires 28 cumulative credit hours
+            elif base_class == 'ACCTCY_2036':
+                if max_cum >= 28: is_eligible = True
+                
+            # ACCTCY_2037: Completion of ACCTCY 2036 or 2136
+            elif base_class == 'ACCTCY_2037':
+                if check_pass(student_history, strm, 'ACCTCY_2036') or check_pass(student_history, strm, 'ACCTCY_2136'):
+                    is_eligible = True
+                    
+            # ACCTCY_2258: Requires Sophomore, Junior, or Senior standing
+            elif base_class == 'ACCTCY_2258':
+                if any(lvl in ['SOPHOMORE', 'JUNIOR', 'SENIOR'] for lvl in current_levels):
+                    is_eligible = True
+                    
+            # MANGMT_3000: Requires 28 cumulative credit hours
+            elif base_class == 'MANGMT_3000':
+                if max_cum >= 28: is_eligible = True
+                
+            # MANGMT_3540: Requires 30 cumulative credit hours
+            elif base_class == 'MANGMT_3540':
+                if max_cum >= 30: is_eligible = True
+                
+            # MRKTING_3000: Requires 45 cumulative credit hours
+            elif base_class == 'MRKTING_3000':
+                if max_cum >= 45: is_eligible = True
+                
+            # FINANC_3000: Complex multi-part requirement
+            elif base_class == 'FINANC_3000':
+                # Condition 1: 45 Credits
+                req1 = max_cum >= 45
+                # Condition 2: Stats (Various options)
+                req2 = (check_pass(student_history, strm, 'STAT_2500') or 
+                       (check_pass(student_history, strm, 'STAT_2200') and check_pass(student_history, strm, 'STAT_1200')) or
+                       (check_pass(student_history, strm, 'STAT_2200') and check_pass(student_history, strm, 'STAT_1300')) or
+                       (check_pass(student_history, strm, 'STAT_2200') and check_pass(student_history, strm, 'STAT_1400')))
+                # Condition 3: Econ 1014 / ABM 1041
+                req3 = (check_pass(student_history, strm, 'ECONOM_1014') or check_pass(student_history, strm, 'ABM_1041'))
+                # Condition 4: Econ 1015 / Econ 1051 / ABM 1042
+                req4 = (check_pass(student_history, strm, 'ECONOM_1015') or 
+                        check_pass(student_history, strm, 'ECONOM_1051') or 
+                        check_pass(student_history, strm, 'ABM_1042'))
+                # Condition 5: Acctcy 2027 / 2037 / 2137
+                req5 = (check_pass(student_history, strm, 'ACCTCY_2027') or 
+                        check_pass(student_history, strm, 'ACCTCY_2037') or 
+                        check_pass(student_history, strm, 'ACCTCY_2137'))
+                
+                if all([req1, req2, req3, req4, req5]):
+                    is_eligible = True
+            
+            # Once we find the FIRST term the student is eligible, mark it and stop checking terms
+            if is_eligible:
+                meeting_term_idx = i
+                break
+
+        # --- COUNTER LOGIC ---
+        count_term = 0
+        
+        # Start counting terms AFTER the meeting term (or from the beginning if "none")
+        if base_class in ['ECONOM_1014', 'BUS_AD_1500', 'ENGLISH_1000', 'ECONOM_1015', 
+                        'BUS_AD_2500', 'STAT_2500', 'ECONOM_3229', 'ECONOM_3251']:
+            start_idx = 0
+        else:
+            start_idx = meeting_term_idx + 1 if meeting_term_idx != -1 else None
+
+        if start_idx is not None:
+            for i in range(start_idx, len(student_strms)):
+                current_strm = student_strms[i]
+                count_term += 1
+                
+                # Was the class taken/completion found in this specific term?
+                taken = not student_history[(student_history['STRM'] == current_strm) & 
+                                          (student_history['CLASS'] == base_class) & 
+                                          (student_history['GRADE_POINTS'] >= 0)].empty
+                
+                # Stop counting if taken OR if we reached the last_term
+                if taken or current_strm == last_term:
+                    break
+            
+            df2.at[idx, eli_col] = count_term
+
+# %%
+# VERIFY RESULTS
+print("\nFinal wide-format summary (df2):")
+cols_to_preview = ['EMPLID', 'ACCTCY_2037_50_SEM_ELI', 'FINANC_3000_64_SEM_ELI']
+print(df2[cols_to_preview].head(10))
+
+# Export to your output directory
+df2.to_csv(output_dir / 'Student_Course_Eligibility_Report.csv', index=False)
+
+# END updated logic example
+
+#%%
 
 
+
+
+# %%
+# 3. VERIFY OUTPUT
+print("\n--- Wide Format Transformation (df2) Summary ---")
+print(f"Total Rows (Students): {len(df2)}")
+
+# Displaying sample for verification
+cols_to_show = ['EMPLID', 'ECONOM_1014_28_SEM_ELI', 'ACCTCY_2036_40_SEM_ELI', 'FINANC_3000_64_SEM_ELI']
+print(df2[cols_to_show].head(10))
+
+# Save the final DataFrame to a CSV for your review
+df2.to_csv(output_dir / 'Student_Progress_Wide.csv', index=False)
+
+#%%
+# END 1_21_26 --- --- ---
+# --- --- --- --- --- ---
 
 
 
