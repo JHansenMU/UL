@@ -23,8 +23,8 @@ output_dir = main_dir / "ULout"
 
 # Filenames
 # data_file_name = 'FSJtemp_readin.xlsx' # test data still need to try FIN test
-data_file_name = 'FSJtemp3_readin.xlsx' # test data still need to try FIN test
-# data_file_name = 'FSJ_all_SP26.xlsx' # Full Data FS26
+# data_file_name = 'FSJtemp3_readin.xlsx' # test data still need to try FIN test
+data_file_name = 'FSJ_all_SP26.xlsx' # Full Data FS25 census IDs
 preq_file_name = 'preq_table_counter_v5.xlsx'
 
 print(f"--- DIAGNOSTIC: Path Check ---")
@@ -209,7 +209,7 @@ print("="*50)
 # --- Export df2 to CSV ---
 
 # 1. Define the output file name
-output_filename = "df2_populated_wide2.csv"
+output_filename = "df2_populated_wide_FS25census.csv"
 output_path = output_dir / output_filename
 
 # 2. Ensure the output directory exists
@@ -221,7 +221,134 @@ df2.to_csv(output_path, index=False)
 print(f"--- Export Complete ---")
 print(f"File saved to: {output_path}")
 
+# %%
+# --- Step 3: Semester Eligibility Counting (Revised with Set Isolation) ---
+
+# 1. Standardize Case and Identification
+df.columns = df.columns.str.lower()
+df2.columns = df2.columns.str.upper()
+
+# Ensure identifiers are consistent
+df['catalog_nbr_clean'] = df['catalog_nbr'].astype(str).str.extract(r'(\d{4})')
+df['class'] = (df['subject'].astype(str) + '_' + df['catalog_nbr_clean'].fillna('0000')).str.upper()
+
+df['emplid'] = df['emplid'].astype(str)
+df2['EMPLID'] = df2['EMPLID'].astype(str)
+df2.set_index('EMPLID', inplace=True)
+
+df_sorted = df.sort_values(by=['emplid', 'strm'])
+target_classes_upper = [str(c).upper() for c in target_classes]
+
+print("Processing student eligibility terms...")
+
+for student_id in df2.index:
+    student_history = df_sorted[df_sorted['emplid'] == student_id]
+    unique_terms = sorted(student_history['strm'].unique())
+    
+    for target_class in target_classes_upper:
+        # --- CRITICAL FIX ---
+        # Initialize set inside target_class loop so history resets for each class evaluation
+        completed_courses = set()
+        count_term = 0
+        
+        # Determine eligibility baseline
+        req_row = preq_df[preq_df['class'].str.upper() == target_class].iloc[0]
+        cond_req = req_row['condreq']
+        is_eligible = (cond_req == 0)
+
+        # Diagnostics for requested class
+        is_diag = (target_class == 'ACCTCY_2037')
+        if is_diag:
+            print(f"\n[DIAGNOSTIC] Student: {student_id} | Class: {target_class}")
+            print(f" Initial is_eligible: {is_eligible}")
+
+        for i, term in enumerate(unique_terms):
+            term_rows = student_history[student_history['strm'] == term]
+            
+            # State at the START of the term
+            already_eligible_at_start = is_eligible
+            
+            # Context for evaluation
+            current_credits = term_rows['tot_cumulative'].max()
+            current_level = str(term_rows['um_clevel_descr'].iloc[0]).upper()
+            
+            # 1. CHECK: Is student taking class this term?
+            is_taking_now = target_class in term_rows['class'].values
+            
+            if is_taking_now:
+                # Count if eligible prior to this term (unless it is the very first term)
+                if already_eligible_at_start and i > 0:
+                    count_term += 1
+                if is_diag:
+                    print(f" Term: {term} (i={i}) | TAKING NOW | count_term final: {count_term}")
+                break 
+            
+            # 2. INCREMENT: Count elapsed terms (Gap)
+            # Only if eligible prior to this term AND it is not the first term
+            if already_eligible_at_start and i > 0:
+                # --- ADDED: Check to skip counting Gap terms ending in '35' ---
+                if not str(term).endswith('35'):
+                    count_term += 1
+            
+            if is_diag:
+                print(f" Term: {term} (i={i}) | EligibleAtStart: {already_eligible_at_start} | count_term: {count_term}")
+
+            # 3. UPDATE HISTORY & ELIGIBILITY: For the NEXT iteration
+            passed = term_rows[term_rows['grd_pts_per_unit'] > 0]['class'].tolist()
+            completed_courses.update(passed)
+            
+            if not is_eligible:
+                # If-Then Prerequisite Logic
+                if target_class in ['ACCTCY_2036', 'MANGMT_3000'] and current_credits >= 28:
+                    is_eligible = True
+                elif target_class == 'ACCTCY_2037':
+                    if any(c in completed_courses for c in ['ACCTCY_2036', 'ACCTCY_2136']):
+                        is_eligible = True
+                elif target_class == 'ACCTCY_2258' and current_level in ['SOPHOMORE', 'JUNIOR', 'SENIOR']:
+                    is_eligible = True
+                elif target_class == 'MANGMT_3540' and current_credits >= 30:
+                    is_eligible = True
+                elif target_class == 'MRKTNG_3000' and current_credits >= 45:
+                    is_eligible = True
+                elif target_class == 'FINANC_3000':
+                    c1 = (current_credits >= 45)
+                    c2 = ('STAT_2500' in completed_courses or ('STAT_2200' in completed_courses and any(s in completed_courses for s in ['STAT_1200', 'STAT_1300', 'STAT_1400'])))
+                    c3 = any(e in completed_courses for e in ['ECONOM_1014', 'ABM_1041'])
+                    c4 = any(e in completed_courses for e in ['ECONOM_1015', 'ECONOM_1051', 'ABM_1042'])
+                    c5 = any(a in completed_courses for a in ['ACCTCY_2027', 'ACCTCY_2037', 'ACCTCY_2137'])
+                    if all([c1, c2, c3, c4, c5]): is_eligible = True
+                
+                if is_diag and is_eligible:
+                    print(f"  >> Became eligible at end of term {term}")
+
+        # Final store
+        col_name = target_class + '_SEM_ELI'
+        if col_name in df2.columns:
+            df2.at[student_id, col_name] = count_term
+
+df2.reset_index(inplace=True)
+print("Updated all eligibility counters.")
+df2.head()
+
 #%%
+# Final export to the output directory
+df2.to_csv(output_dir / "df2_final_with_counts_all.csv", index=False)
+print(f"Success! Final data saved to: {output_dir / 'df2_final_with_counts_all.csv'}")
+
+
+
+
+
+
+#%% ---- END ---
+
+
+
+
+#%%
+# Block of code before '35' update
+
+
 # --- Step 3: Semester Eligibility Counting (Revised with Set Isolation) ---
 
 # 1. Standardize Case and Identification
@@ -328,17 +455,17 @@ df2.reset_index(inplace=True)
 print("Updated all eligibility counters.")
 df2.head()
 
+
+
+
+
 #%%
-# Final export to the output directory
-df2.to_csv(output_dir / "df2_final_with_counts2.csv", index=False)
-print(f"Success! Final data saved to: {output_dir / 'df2_final_with_counts2.csv'}")
+#%%
 
 
 
 
 
-
-#%% ---- END ---
 
 #%%
 
