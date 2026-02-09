@@ -223,7 +223,7 @@ print(f"File saved to: {output_path}")
 
 # %%
 # --- Step 3: Semester Eligibility Counting (Revised with Set Isolation) ---
-
+# -- The below gap counting excludes any summer semester. Previous code below script notated. 
 # 1. Standardize Case and Identification
 df.columns = df.columns.str.lower()
 df2.columns = df2.columns.str.upper()
@@ -337,8 +337,106 @@ print(f"Success! Final data saved to: {output_dir / 'df2_final_with_counts_all.c
 
 
 
+#%%
 
+# --- Descriptive Statistics Table with Dynamic 'last_term' Label ---
+# --- Step 4: Descriptive Statistics Table with Fixed SD Calculation ---
 
+# 1. Initialize list for statistics
+final_stats_list = []
+
+# Define the dynamic column header using the last_term variable
+dynamic_col_label = f"Students Elg '{last_term}' not enrolled"
+
+# 2. Iterate through each target class to calculate unique stats
+for target_class in target_classes_upper:
+    # Set the relevant columns for this iteration
+    status_col = target_class              # The enrollment status (0, 1, or 2)
+    eli_col = target_class + '_SEM_ELI'    # The eligibility counter
+    
+    # FILTER: Only include students who:
+    # A) Have NOT taken/attempted the class (status == 0)
+    # B) HAVE been eligible for at least 1 term (eli_col > 0)
+    subset = df2[(df2[status_col] == 0) & (df2[eli_col] > 0)]
+    
+    # SUBSET FOR DYNAMIC COLUMN: Eligible in last_term specifically and not enrolled
+    last_term_eligible_subset = df2[(df2[status_col] == 0) & (df2[eli_col] == 1)]
+    
+    # 3. Calculate Descriptive Stats for THIS class's subset only
+    if not subset.empty:
+        # Calculate mean of the SEM_ELI column for this filtered subset
+        class_mean = subset[eli_col].mean()
+        
+        # Calculate standard deviation of the SEM_ELI column for this filtered subset
+        # Note: std() returns NaN if Num Students is 1
+        class_sd = subset[eli_col].std()
+        
+        class_count = len(subset)
+    else:
+        class_mean = 0
+        class_sd = 0
+        class_count = 0
+        
+    # 4. Compile Row Data
+    final_stats_list.append({
+        'Class': target_class,
+        'Mean num Terms Eligible': round(class_mean, 2),
+        'SD': round(class_sd, 2) if not pd.isna(class_sd) else 0,
+        'Num Students': class_count,
+        dynamic_col_label: len(last_term_eligible_subset)
+    })
+
+# 5. Create the final statistics DataFrame
+stats_df = pd.DataFrame(final_stats_list)
+
+# 6. Display the table to verify unique SD values
+print(f"\n--- Descriptive Statistics: Analysis for Term {last_term} ---")
+print(stats_df)
+
+# 7. Export the table to your output directory
+stats_df.to_csv(output_dir / 'descriptive_stats_final.csv', index=False)
+
+#%%
+# --- Exporting Class-Specific Eligibility Tables ---
+
+# 1. Define the structural columns we want to keep in every table
+# These are the metadata columns (emplid, strm, etc.)
+metadata_cols = [
+    'EMPLID', 'STRM', 'TERM', 'ADMIT_TERM', 'ADMIT_TERM_DESC',
+    'UM_CLEVEL_DESCR', 'ACAD_PROG', 'ACAD_PLAN', 'ACAD_SUBPLAN',
+    'CUM_GPA', 'TOT_CUMULATIVE', 'TOT_HRS_LIFE'
+]
+
+# 2. Define the target classes for the individual tables
+export_targets = ['FINANC_3000', 'MRKTNG_3000', 'MANGMT_3000']
+
+print("Exporting specific eligibility tables...")
+
+for base_class in export_targets:
+    status_col = base_class
+    eli_col = base_class + '_SEM_ELI'
+    
+    # Check if columns exist in df2 to prevent KeyErrors
+    if status_col in df2.columns and eli_col in df2.columns:
+        
+        # FILTER: Only include students used in the 'Num Students' count
+        # Logic: Status == 0 (Not Taken) AND SEM_ELI > 0 (Eligible)
+        filtered_subset = df2[(df2[status_col] == 0) & (df2[eli_col] > 0)].copy()
+        
+        # SELECT: Metadata columns + the 2 specific class columns
+        columns_to_export = metadata_cols + [status_col, eli_col]
+        final_table = filtered_subset[columns_to_export]
+        
+        # 3. EXPORT: Save to the output directory
+        file_name = f"Eligible_Not_Enrolled_{base_class}.csv"
+        file_path = output_dir / file_name
+        final_table.to_csv(file_path, index=False)
+        
+        print(f" - Exported {len(final_table)} records for {base_class} to {file_name}")
+    else:
+        print(f" - Skipping {base_class}: Columns not found in df2.")
+
+print("\nAll individual class tables have been saved to the output directory.")
 
 #%% ---- END ---
 
