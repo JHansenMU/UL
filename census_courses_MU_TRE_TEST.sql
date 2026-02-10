@@ -8,7 +8,9 @@ WITH Business_Students AS (
         OR um_acad_prog2 = 'BUSNU' 
         OR um_acad_prog3 = 'BUSNU' 
         OR um_acad_prog4 = 'BUSNU')
-       AND emplid = '14404855' -- Uncomment for testing
+--       AND emplid = '14404855' -- Uncomment for testing
+--       AND emplid IN('12581334','12587176','12596190','14330940','14381520','14382621','14399123','14407310')
+       AND emplid IN('12581334')
 ),
 
 Course_Catalog_Lookup AS (
@@ -16,7 +18,6 @@ Course_Catalog_Lookup AS (
     SELECT crse_id
     , subject
     , catalog_nbr
---    , MAX(subject_ldesc) as subject_ldesc
     FROM sa_c.sa_class_dm
     GROUP BY crse_id, subject, catalog_nbr
 ),
@@ -36,17 +37,20 @@ Courses_Taken AS (
         , a.unt_taken
         , a.grade_points
         , a.class_nbr
-        , 'MU Course' AS COURSE_SOURCE -- <--- SOURCE FLAG
+        , 'MU' AS COURSE_SOURCE -- <--- SOURCE FLAG
     FROM sa_c.sa_stdnt_enrl_fc a
     INNER JOIN Business_Students bus ON a.emplid = bus.emplid
     INNER JOIN sa_c.sa_class_dm b ON a.class_nbr = b.class_nbr AND a.strm = b.strm
     WHERE a.stdnt_enrl_status = 'E' 
       AND a.enrl_status_reason = 'ENRL'
+      AND a.repeat_code <> 'NING'        -- added back    NING means this course is excluded and repeated later on.
+      AND a.grading_basis_enrl <> 'NON'  -- added back
       AND a.strm >= '3543' -- All Terms
 
     UNION ALL -- Using UNION ALL + DISTINCT later is often faster than UNION early
 
     -- 2. Transfer Courses (Join to Lookup, NOT the full class_dm)
+    -- *** may need to change query to put value in query for transfer classes if float(row['grd_pts_per_unit']) > 0:
     SELECT 
         a.emplid
         , a.crse_id
@@ -60,7 +64,7 @@ Courses_Taken AS (
         , NULL -- unt_taken
         , NULL -- grade_points 
         , NULL -- class_nbr
-        , 'TRE Course' AS COURSE_SOURCE -- <--- SOURCE FLAG
+        , 'TRANSFER' AS COURSE_SOURCE -- <--- SOURCE FLAG
     FROM sa_c.sa_trns_crse_dtl_fc a
     INNER JOIN Business_Students bus ON a.emplid = bus.emplid
     INNER JOIN Course_Catalog_Lookup l ON a.crse_id = l.crse_id
@@ -70,6 +74,7 @@ Courses_Taken AS (
     UNION ALL
 
     -- 3. Test Credits
+    -- *** may need to change query to put value in query for transfer classes if float(row['grd_pts_per_unit']) > 0:
     SELECT 
         a.emplid
         , a.crse_id
@@ -83,7 +88,7 @@ Courses_Taken AS (
         , NULL -- unt_taken
         , NULL -- grade_points 
         , NULL -- class_nbr
-        , 'TEST Credit' AS COURSE_SOURCE -- <--- SOURCE FLAG
+        , 'TEST' AS COURSE_SOURCE -- <--- SOURCE FLAG
     FROM sa_c.sa_trns_test_dtl_fc a
     INNER JOIN Business_Students bus ON a.emplid = bus.emplid
     INNER JOIN Course_Catalog_Lookup l ON a.crse_id = l.crse_id
@@ -113,7 +118,7 @@ SELECT DISTINCT
     e.admit_term_rollup AS ADMIT_TERM,
     e.admit_term_rollup_descrshort AS ADMIT_TERM_DESC,
     -- Fallback: If no census record for that term, label as Transfer/Test
-    COALESCE(curr_census.um_clevel_descr, 'TRANS/TEST') AS STUDENT_LEVEL,
+--    COALESCE(curr_census.um_clevel_descr, 'TRANS/TEST') AS STUDENT_LEVEL,
     curr_census.um_clevel_descr,
     a.acad_prog,
     c.acad_plan,
@@ -132,7 +137,7 @@ SELECT DISTINCT
 FROM Business_Students bus
 JOIN Courses_Taken a ON bus.emplid = a.emplid
 LEFT JOIN Earliest_Admit e ON bus.emplid = e.emplid
--- JOIN to Census here to get the level for EVERY term in the student's history
+-- LEFT JOIN to Census here to get the clevel for EVERY term in the student's history
 LEFT JOIN sa_c.ps_um_census_enrl curr_census 
     ON a.emplid = curr_census.emplid 
     AND a.strm = curr_census.strm
@@ -158,4 +163,12 @@ Course_Catalog_Lookup AS (
     
 ),
 
-
+SELECT  
+crse_id
+    , subject
+    , catalog_nbr
+    , MAX(subject_ldesc) as subject_ldesc
+    FROM sa_c.sa_class_dm
+    WHERE subject = 'ACCTCY' AND catalog_nbr = '2037'
+    GROUP BY crse_id, subject, catalog_nbr
+    FETCH FIRST 20 ROWS ONLY;

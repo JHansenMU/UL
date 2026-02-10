@@ -24,8 +24,8 @@ output_dir = main_dir / "ULout"
 # Filenames
 # data_file_name = 'FSJtemp_readin.xlsx' # test data still need to try FIN test
 # data_file_name = 'FSJtemp3_readin.xlsx' # test data still need to try FIN test
-data_file_name = 'FSJ_all_SP26.xlsx' # Full Data FS25 census IDs
-preq_file_name = 'preq_table_counter_v5.xlsx'
+data_file_name = 'FSJtemp3all_readin.xlsx' # Full Data FS25 census IDs
+preq_file_name = 'preq_table_counter_v6.xlsx'
 
 print(f"--- DIAGNOSTIC: Path Check ---")
 print(f"Data Directory: {data_dir}")
@@ -46,6 +46,11 @@ try:
     for col in cols_to_fix:
         if col in df.columns:
             df[col] = df[col].astype(str)
+
+    # NEW: Ensure grd_pts_per_unit is a float
+    if 'grd_pts_per_unit' in df.columns:
+        # errors='coerce' turns non-numeric values into NaN to prevent crashes
+        df['grd_pts_per_unit'] = pd.to_numeric(df['grd_pts_per_unit'], errors='coerce')
             
     print(f"SUCCESS: Read {data_file_name}. Shape: {df.shape}")
     print(f"Columns found: {df.columns.tolist()}")
@@ -70,7 +75,7 @@ if 'catalog_nbr' in df.columns:
     df['class'] = df['subject'].astype(str) + '_' + df['catalog_nbr_clean'].fillna('0000')
     
     print("Sample of cleaning logic:")
-    print(df[['subject', 'catalog_nbr', 'class']].drop_duplicates().head(10))
+    print(df[['subject', 'catalog_nbr', 'class']].drop_duplicates().head(20))
 else:
     print("CRITICAL ERROR: 'catalog_nbr' column not found. Check Excel headers.")
 
@@ -97,8 +102,9 @@ last_term = '5427'
 print(f"\n--- DIAGNOSTIC: Filtering for Term {last_term} ---")
 
 constant_cols = [
-    'emplid', 'strm', 'term', 'admit_term', 'admit_term_desc',
+    'emplid', 'strm', 'term', 'admit_term', 'admit_term_desc', 
     'um_clevel_descr', 'acad_prog', 'acad_plan', 'acad_subplan',
+    'course_source', # MU, TRANSFER, Test
     'cum_gpa', 'tot_cumulative', 'tot_hrs_life'
 ]
 
@@ -111,6 +117,7 @@ else:
     # Get unique students (one row per student)
     df2 = df2[constant_cols].drop_duplicates(subset=['emplid'])
     print(f"Unique students in df2: {len(df2)}")
+    print(f"Note students who graduate or who are not enrolled in, last_term +1, are not in this set.")
 
     # 5. Initialize Target Columns
     print("\n--- DIAGNOSTIC: Initializing Target Columns ---")
@@ -155,7 +162,8 @@ df2.set_index('emplid', inplace=True)
 
 print(f"Standardization Complete. Tracking {len(target_classes)} uppercase target classes.")
 
-# 6. Step through each row and populate
+# 6. Step through each row and populate. If class exists mark as taken (2) or in progress (1).
+# *** may need to change query to put value in query for transfer classes if float(row['grd_pts_per_unit']) > 0: 
 for idx, row in df_sorted.iterrows():
     sid = str(row['emplid'])
     current_class = str(row['class']) # This is now guaranteed Uppercase
@@ -224,6 +232,8 @@ print(f"File saved to: {output_path}")
 # %%
 # --- Step 3: Semester Eligibility Counting (Revised with Set Isolation) ---
 # -- The below gap counting excludes any summer semester. Previous code below script notated. 
+# -- Note: If class was taken twice (low grade repeat) eligibility flag will throw at first taken.
+# -- an example student is '12581334' for 'ACCTCY_2037'
 # 1. Standardize Case and Identification
 df.columns = df.columns.str.lower()
 df2.columns = df2.columns.str.upper()
