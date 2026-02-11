@@ -24,7 +24,7 @@ output_dir = main_dir / "ULout"
 # Filenames
 # data_file_name = 'FSJtemp_readin.xlsx' # test data still need to try FIN test
 # data_file_name = 'FSJtemp3_readin.xlsx' # test data still need to try FIN test
-data_file_name = 'FSJtemp3all_readin.xlsx' # Full Data FS25 census IDs
+data_file_name = 'FSJtemp4a_readin.xlsx' # Test Data 4 students FS25 census IDs
 preq_file_name = 'preq_table_counter_v6.xlsx'
 
 print(f"--- DIAGNOSTIC: Path Check ---")
@@ -104,7 +104,6 @@ print(f"\n--- DIAGNOSTIC: Filtering for Term {last_term} ---")
 constant_cols = [
     'emplid', 'strm', 'term', 'admit_term', 'admit_term_desc', 
     'um_clevel_descr', 'acad_prog', 'acad_plan', 'acad_subplan',
-    'course_source', # MU, TRANSFER, Test
     'cum_gpa', 'tot_cumulative', 'tot_hrs_life'
 ]
 
@@ -217,7 +216,7 @@ print("="*50)
 # --- Export df2 to CSV ---
 
 # 1. Define the output file name
-output_filename = "df2_populated_wide_FS25census.csv"
+output_filename = "df2_populated_wide_test4a_FS25census.csv"
 output_path = output_dir / output_filename
 
 # 2. Ensure the output directory exists
@@ -320,6 +319,28 @@ for student_id in df2.index:
                     is_eligible = True
                 elif target_class == 'MRKTNG_3000' and current_credits >= 45:
                     is_eligible = True
+                
+                # --- NEW ADDITIONS START ---
+                # Requirement: ACAD_PLAN IN('ACCT_BSACC', 'BUSAD_BSBA')
+                elif target_class == 'BUS_AD_3500':
+                    # Assuming acad_plan is available in your term_rows context
+                    current_plan = str(term_rows['acad_plan'].iloc[0]).upper()
+                    if current_plan in ['ACCT_BSACC', 'BUSAD_BSBA']:
+                        is_eligible = True
+                
+                # Requirement: TOT_CUMULATIVE >= 24
+                elif target_class == 'MANGMT_3300' and current_credits >= 24:
+                    is_eligible = True
+                
+                # Requirement: TOT_CUMULATIVE >= 102 AND MANGMT_3000, MRKTNG_3000, FINANC_3000 completed
+                elif target_class == 'MANGMT_4970':
+                    c1 = (current_credits >= 102)
+                    c2 = 'MANGMT_3000' in completed_courses
+                    c3 = 'MRKTNG_3000' in completed_courses
+                    c4 = 'FINANC_3000' in completed_courses
+                    if all([c1, c2, c3, c4]): is_eligible = True
+                # --- NEW ADDITIONS END ---
+
                 elif target_class == 'FINANC_3000':
                     c1 = (current_credits >= 45)
                     c2 = ('STAT_2500' in completed_courses or ('STAT_2200' in completed_courses and any(s in completed_courses for s in ['STAT_1200', 'STAT_1300', 'STAT_1400'])))
@@ -342,8 +363,8 @@ df2.head()
 
 #%%
 # Final export to the output directory
-df2.to_csv(output_dir / "df2_final_with_counts_all.csv", index=False)
-print(f"Success! Final data saved to: {output_dir / 'df2_final_with_counts_all.csv'}")
+df2.to_csv(output_dir / "df2_final_with_counts_test4a_all.csv", index=False)
+print(f"Success! Final data saved to: {output_dir / 'df2_final_with_counts_test4a_all.csv'}")
 
 
 
