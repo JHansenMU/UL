@@ -9,8 +9,10 @@ WITH Business_Students AS (
         OR um_acad_prog3 = 'BUSNU' 
         OR um_acad_prog4 = 'BUSNU')
 --       AND emplid = '14404855' -- Uncomment for testing
---       AND emplid IN('12581334','12587176','12596190','14330940','14381520','14382621','14399123','14407310')
-       AND emplid IN('12581334')
+--       AND emplid IN('12581334', '12587176', '12596190', '14407310', '14330940', '14381520','14382621','14399123')
+--       AND emplid IN('12581334', '12587176', '12596190', '14407310')
+--       AND emplid IN('14382621','14399123','14404855', '14444172') -- last two Seniors with many transfer classes only two that show in end counts.
+--       AND emplid IN('12581334')
 ),
 
 Course_Catalog_Lookup AS (
@@ -50,7 +52,7 @@ Courses_Taken AS (
     UNION ALL -- Using UNION ALL + DISTINCT later is often faster than UNION early
 
     -- 2. Transfer Courses (Join to Lookup, NOT the full class_dm)
-    -- *** may need to change query to put value in query for transfer classes if float(row['grd_pts_per_unit']) > 0:
+    -- *** 99 for transfer classes if float(row['grd_pts_per_unit']) > 0:
     SELECT 
         a.emplid
         , a.crse_id
@@ -60,7 +62,7 @@ Courses_Taken AS (
         , a.articulation_term as strm
         , '' as acad_prog
         , '' as crse_grade_input
-        , NULL -- grd_pts_per_unit
+        , 99 AS grd_pts_per_unit
         , NULL -- unt_taken
         , NULL -- grade_points 
         , NULL -- class_nbr
@@ -74,7 +76,7 @@ Courses_Taken AS (
     UNION ALL
 
     -- 3. Test Credits
-    -- *** may need to change query to put value in query for transfer classes if float(row['grd_pts_per_unit']) > 0:
+    -- *** 99 for transfer classes if float(row['grd_pts_per_unit']) > 0:
     SELECT 
         a.emplid
         , a.crse_id
@@ -84,7 +86,7 @@ Courses_Taken AS (
         , a.articulation_term as strm
         , '' as acad_prog
         , '' as crse_grade_input
-        , NULL -- grd_pts_per_unit
+        , 99 AS grd_pts_per_unit
         , NULL -- unt_taken
         , NULL -- grade_points 
         , NULL -- class_nbr
