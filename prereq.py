@@ -24,7 +24,7 @@ output_dir = main_dir / "ULout"
 # Filenames
 # data_file_name = 'FSJtemp_readin.xlsx' # test data still need to try FIN test
 # data_file_name = 'FSJtemp3_readin.xlsx' # test data still need to try FIN test
-data_file_name = 'FSJtemp4a_readin.xlsx' # Test Data 4 students FS25 census IDs
+data_file_name = 'FSJ_all_SP26.xlsx' # Fall 25 census IDs
 preq_file_name = 'preq_table_counter_v6.xlsx'
 
 print(f"--- DIAGNOSTIC: Path Check ---")
@@ -172,6 +172,15 @@ for idx, row in df_sorted.iterrows():
         # Check grade points
         if float(row['grd_pts_per_unit']) > 0:
             df2.at[sid, current_class] = 2
+
+        # Have to manage an 'F' grade that results in 0 for grade points (0 for grades points also 
+        # recorded for a class that a student is enrolled in during current semester but not completed.
+        # This is the final condition where df2.at[sid, current_class] = 1)    
+        # --- START ADDITION: Check for failing grade to mark as taken (2) ---
+        elif float(row['grd_pts_per_unit']) == 0 and str(row['crse_grade_input']).upper() == 'F':
+            df2.at[sid, current_class] = 2
+        # --- END ADDITION ---
+        
         else:
             df2.at[sid, current_class] = 1
 
@@ -216,7 +225,7 @@ print("="*50)
 # --- Export df2 to CSV ---
 
 # 1. Define the output file name
-output_filename = "df2_populated_wide_test4a_FS25census.csv"
+output_filename = "df2_populated_wide_FS25census.csv"
 output_path = output_dir / output_filename
 
 # 2. Ensure the output directory exists
@@ -363,9 +372,8 @@ df2.head()
 
 #%%
 # Final export to the output directory
-df2.to_csv(output_dir / "df2_final_with_counts_test4a_all.csv", index=False)
-print(f"Success! Final data saved to: {output_dir / 'df2_final_with_counts_test4a_all.csv'}")
-
+df2.to_csv(output_dir / "df2_final_gap_counts_FS25.csv", index=False)
+print(f"Success! Final data saved to: {output_dir / 'df2_final_gap_counts_FS25.csv'}")
 
 
 #%%
@@ -377,7 +385,7 @@ print(f"Success! Final data saved to: {output_dir / 'df2_final_with_counts_test4
 final_stats_list = []
 
 # Define the dynamic column header using the last_term variable
-dynamic_col_label = f"Students Elg '{last_term}' not enrolled"
+dynamic_col_label = f" Enrolled '{last_term}'"
 
 # 2. Iterate through each target class to calculate unique stats
 for target_class in target_classes_upper:
@@ -390,8 +398,9 @@ for target_class in target_classes_upper:
     # B) HAVE been eligible for at least 1 term (eli_col > 0)
     subset = df2[(df2[status_col] == 0) & (df2[eli_col] > 0)]
     
-    # SUBSET FOR DYNAMIC COLUMN: Eligible in last_term specifically and not enrolled
-    last_term_eligible_subset = df2[(df2[status_col] == 0) & (df2[eli_col] == 1)]
+    # SUBSET FOR DYNAMIC COLUMN: Students currently enrolled. Term after Census term.
+    # Few students are enrolled but missing a few prereq, econ 1014, Stat, etc.
+    last_term_eligible_subset = df2[(df2[status_col] == 1) & (df2[eli_col] >= 0)]
     
     # 3. Calculate Descriptive Stats for THIS class's subset only
     if not subset.empty:
@@ -411,9 +420,9 @@ for target_class in target_classes_upper:
     # 4. Compile Row Data
     final_stats_list.append({
         'Class': target_class,
-        'Mean num Terms Eligible': round(class_mean, 2),
+        'Mean Terms Eligible': round(class_mean, 2),
         'SD': round(class_sd, 2) if not pd.isna(class_sd) else 0,
-        'Num Students': class_count,
+        'Elig Never Enrolled': class_count,
         dynamic_col_label: len(last_term_eligible_subset)
     })
 
@@ -425,7 +434,7 @@ print(f"\n--- Descriptive Statistics: Analysis for Term {last_term} ---")
 print(stats_df)
 
 # 7. Export the table to your output directory
-stats_df.to_csv(output_dir / 'descriptive_stats_final.csv', index=False)
+stats_df.to_csv(output_dir / 'descriptive_stats_FS25.csv', index=False)
 
 #%%
 # --- Exporting Class-Specific Eligibility Tables ---
