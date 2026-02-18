@@ -285,25 +285,45 @@ WHERE
 --AND a.STRM IN('5343') -- FS25
 ORDER BY a.strm;
 
--- First test = =29 rows
 
+
+-- --- --- --------------------------------------------------------------------
+-- First test = =29 rows
+-- Used for final set 1_28_26 JH
 -- QUERY REWRITE with inner join -- Use this for the final version
 WITH Business_Students AS (
     -- This small subset drives the performance of the entire query
-    SELECT DISTINCT emplid 
+    SELECT DISTINCT emplid
     FROM sa_c.ps_um_census_enrl 
     WHERE strm = '5343'         -- The controling term for entire process.
       AND acad_career = 'UGRD'
       AND um_deg_seeking = 'Y'
       AND um_acad_grp_descr = 'College of Business'
-      AND emplid IN ('14467078', '14466324', '14467014', '14467602') -- Remove for full set.
+--      AND emplid IN ('14467078', '14466324', '14467014', '14467602') -- Remove for full set.
+      AND emplid IN ('12581334', '12587176', '12596190', '14407310') -- First set of 4
+--      AND emplid IN ('10295895', '12579802') --, '12587234') -- MZON, BSBA_and cert, UDEC to ACCT.
+),
+-- Pre-filtering Table E to get the earliest admit term per student
+Earliest_Admit AS (
+    SELECT *
+    FROM (
+        SELECT 
+            e.*,
+            ROW_NUMBER() OVER (PARTITION BY e.emplid ORDER BY e.admit_term_rollup ASC) as row_num
+        FROM um_sdsc.mu_4d_adm_appl_dtl_wk0 e
+        WHERE e.um_deg_seeking = 'Y'
+          AND e.acad_career = 'UGRD'
+          AND e.admit_type IN ('FTC','TRE')
+          AND e.acad_group = 'CBUSN'
+    ) ranked_e
+    WHERE row_num = 1
 )
 SELECT 
     a.emplid,
     a.strm,
     c.term,
     -- Admission Fields (Table E)
-    e.admit_term_rollup AS ADMIT_TERM, 
+    e.admit_term_rollup AS ADMIT_TERM, -- EMPLID = 10295895 has 2 admit terms, ACAD_SUBPLAN = MZON
     e.admit_term_rollup_descrshort ADMIT_TERM_DESC, 
 --    e.ever_admit, 
 --    e.is_deposit_paid, 
@@ -330,28 +350,32 @@ FROM sa_c.sa_stdnt_enrl_Fc a
 INNER JOIN Business_Students bus 
     ON a.emplid = bus.emplid
 -- Join the Admission Table (Table E)
-INNER JOIN um_sdsc.mu_4d_adm_appl_dtl_wk0 e
+-- CHANGED: Joining to the CTE instead of the raw table
+INNER JOIN Earliest_Admit e
     ON a.emplid = e.emplid
---    AND a.strm = e.admit_term_rollup
 INNER JOIN sa_c.sa_class_dm b 
     ON a.class_nbr = b.class_nbr 
     AND a.strm = b.strm
 INNER JOIN mu_sis_mv.students_active_in_prog_by_term_mv c 
     ON a.strm = c.strm 
     AND a.emplid = c.emplid
-INNER JOIN sa_c.ps_um_census_enrl d 
+INNER JOIN sa_c.ps_um_census_enrl d -- use this to set um_clevel_descr by strm
     ON a.strm = d.strm 
     AND a.emplid = d.emplid
 WHERE a.stdnt_enrl_status = 'E'
   AND a.enrl_status_reason = 'ENRL'
   AND a.grading_basis_enrl <> 'NON'
+  AND c.ACAD_PLAN IN('UNDEC_BUS', 'BUSAD_BSBA', 'ACCT_BSACC')
+  AND d.um_clevel_descr IN('FRESHMAN', 'SOPHOMORE', 'JUNIOR', 'SENIOR')
+  -- Test single student single term
+--  AND a.emplid = '14404855' -- Only FIN_3000 transfer during '5327'
+--  AND a.emplid = '14467602' -- JUNIOR
+--  AND a.emplid = '14404855' -- Senior with many transfer hours in 5327 FINANC_3000
+--  AND a.strm = '5327' -- Spring strm when 4855 takes FIN 3000
   -- Filter Table E to ensure we get the correct "Entry" record
-  AND e.um_deg_seeking = 'Y'
-  AND e.acad_career = 'UGRD'
-  AND e.admit_type IN ('FTC','TRE')
-  AND e.acad_group = 'CBUSN'
 ORDER BY a.emplid, a.strm;
 -- n-29 rows
+-- n=95,296 full set 2_2_26
 -- --- END TEST with Inner join --
 
 
