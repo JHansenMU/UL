@@ -2,6 +2,12 @@
 # This program uses two files to perform operations.
 # 1. The data file FSJtemp.xlsx
 # 2. The class prereq file preq_table_counter_v5.xlsx
+
+# For the prereq BUS_AD_3500
+# Line 340 4/20/26, Note we currently use 'Bus_Maj' to catch this requirement 
+# and we set the Bus_Maj in the SQL. Doing this avoids potential duplicates 
+# when we try and capture ACAD_PLAN. Cleaner solution.
+
 # --- --- --- 
 #
 #%%
@@ -98,14 +104,21 @@ except Exception as e:
 # %%
 # 4. Prepare df2 (The Wide File)
 df2 = pd.DataFrame()
-last_term = '5427'
+last_term = '5427' # SP26
 print(f"\n--- DIAGNOSTIC: Filtering for Term {last_term} ---")
 
+# original pre 4/20
+# constant_cols = [
+#     'emplid', 'strm', 'term', 'admit_term', 'admit_term_desc', 
+#     'um_clevel_descr', 'acad_prog', 'acad_plan', 'acad_subplan',
+#     'cum_gpa', 'tot_cumulative', 'tot_hrs_life'
+# ]
 constant_cols = [
-    'emplid', 'strm', 'term', 'admit_term', 'admit_term_desc', 
-    'um_clevel_descr', 'acad_prog', 'acad_plan', 'acad_subplan',
+    'emplid', 'strm', 'term', 'admit_term',  
+    'um_clevel_descr', 'acad_prog', 'bus_maj', 
     'cum_gpa', 'tot_cumulative', 'tot_hrs_life'
 ]
+
 
 # Create df2 using only the records from the last_term
 df2 = df[df['strm'] == last_term].copy()
@@ -330,13 +343,13 @@ for student_id in df2.index:
                     is_eligible = True
                 
                 # --- NEW ADDITIONS START ---
-                # Requirement: ACAD_PLAN IN('ACCT_BSACC', 'BUSAD_BSBA')
+                # Requirement: Student must be a Business Major (ACCT_BSACC or BUSAD_BSBA)
                 elif target_class == 'BUS_AD_3500':
-                    # Assuming acad_plan is available in your term_rows context
-                    current_plan = str(term_rows['acad_plan'].iloc[0]).upper()
-                    if current_plan in ['ACCT_BSACC', 'BUSAD_BSBA']:
+                    # Access the pre-calculated flag from your SQL query
+                    # We check if any value in the bus_maj column for this group is 1
+                    if term_rows['bus_maj'].iloc[0] == 1:
                         is_eligible = True
-                
+
                 # Requirement: TOT_CUMULATIVE >= 24
                 elif target_class == 'MANGMT_3300' and current_credits >= 24:
                     is_eligible = True
@@ -442,8 +455,8 @@ stats_df.to_csv(output_dir / 'descriptive_stats_FS25.csv', index=False)
 # 1. Define the structural columns we want to keep in every table
 # These are the metadata columns (emplid, strm, etc.)
 metadata_cols = [
-    'EMPLID', 'STRM', 'TERM', 'ADMIT_TERM', 'ADMIT_TERM_DESC',
-    'UM_CLEVEL_DESCR', 'ACAD_PROG', 'ACAD_PLAN', 'ACAD_SUBPLAN',
+    'EMPLID', 'STRM', 'TERM', 'ADMIT_TERM', 
+    'UM_CLEVEL_DESCR', 'ACAD_PROG', 'BUS_MAJ',
     'CUM_GPA', 'TOT_CUMULATIVE', 'TOT_HRS_LIFE'
 ]
 
